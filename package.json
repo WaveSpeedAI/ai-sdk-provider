@@ -1,0 +1,66 @@
+{
+  "name": "@wavespeed/ai-sdk-provider",
+  "version": "0.1.0",
+  "description": "WaveSpeed AI provider for the Vercel AI SDK",
+  "type": "module",
+  "license": "MIT",
+  "author": "WaveSpeedAI",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "4.0.7",
+    "@ai-sdk/provider-utils": "5.0.27"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "zod": "^4.1.8"
+  },
+  "peerDependencies": {
+    "zod": "^3.25.76 || ^4.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://wavespeed.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WaveSpeedAI/ai-sdk-provider"
+  },
+  "bugs": {
+    "url": "https://github.com/WaveSpeedAI/ai-sdk-provider/issues"
+  },
+  "keywords": [
+    "ai-sdk",
+    "vercel",
+    "wavespeed",
+    "image-generation",
+    "video-generation"
+  ]
+}
