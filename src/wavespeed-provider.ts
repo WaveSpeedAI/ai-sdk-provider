@@ -81,6 +81,63 @@ export interface WaveSpeedProvider extends ProviderV4 {
 const defaultBaseURL = 'https://api.wavespeed.ai';
 
 /**
+ * Lowercase OS name for the X-Client-OS header: darwin / linux / windows
+ * (win32 is reported as windows). Falls back to user agent parsing in
+ * browser environments, and 'unknown' elsewhere (e.g. edge runtimes).
+ */
+function getOperatingSystem(): string {
+  if (typeof process !== 'undefined' && process.platform) {
+    return process.platform === 'win32' ? 'windows' : process.platform;
+  }
+  if (typeof navigator !== 'undefined' && navigator.userAgent) {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('mac os x') || userAgent.includes('macintosh')) {
+      return 'darwin';
+    }
+    if (
+      userAgent.includes('windows') ||
+      userAgent.includes('win64') ||
+      userAgent.includes('win32')
+    ) {
+      return 'windows';
+    }
+    if (userAgent.includes('android')) {
+      return 'android';
+    }
+    if (
+      userAgent.includes('iphone') ||
+      userAgent.includes('ipad') ||
+      userAgent.includes('ipod')
+    ) {
+      return 'ios';
+    }
+    if (userAgent.includes('linux')) {
+      return 'linux';
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * Channel-attribution headers (X-Client-Name / X-Client-Version /
+ * X-Client-OS), following the wavespeed-desktop convention. The
+ * WAVESPEED_CLIENT_NAME environment variable overrides the name so wrapper
+ * channels can brand themselves without code changes. These defaults are
+ * merged under user-supplied headers, so custom headers always win.
+ */
+function clientAttributionHeaders(): Record<string, string> {
+  const envClientName =
+    typeof process !== 'undefined' && process.env
+      ? process.env.WAVESPEED_CLIENT_NAME
+      : undefined;
+  return {
+    'X-Client-Name': envClientName || 'wavespeed-ai-sdk-provider',
+    'X-Client-Version': VERSION,
+    'X-Client-OS': getOperatingSystem(),
+  };
+}
+
+/**
  * Create a WaveSpeed provider instance.
  */
 export function createWaveSpeed(
@@ -97,6 +154,7 @@ export function createWaveSpeed(
           environmentVariableName: 'WAVESPEED_API_KEY',
           description: 'WaveSpeed',
         })}`,
+        ...clientAttributionHeaders(),
         ...options.headers,
       },
       `wavespeed/ai-sdk-provider/${VERSION}`,

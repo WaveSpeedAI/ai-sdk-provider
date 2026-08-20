@@ -1,6 +1,6 @@
 {
   "name": "@wavespeed/ai-sdk-provider",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WaveSpeed AI provider for the Vercel AI SDK",
   "type": "module",
   "license": "MIT",
