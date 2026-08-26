@@ -34,5 +34,5 @@ export type WaveSpeedResultResponse = z.infer<
 >;
 
 export function isTerminalFailure(status: string): boolean {
-  return status === 'failed' || status === 'cancelled' || status === 'timeout';
+  return status === 'failed' || status === 'cancelled' || status === 'timeout' || status === 'deleted';
 }

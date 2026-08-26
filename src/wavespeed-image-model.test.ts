@@ -139,16 +139,19 @@ describe('WaveSpeedImageModel', () => {
   });
 
   describe('failure paths', () => {
-    it('throws an APICallError when the prediction fails', async () => {
-      const { model } = createModel([
-        () => submitted(),
-        () => result('failed', { error: 'NSFW content detected' }),
-      ]);
+    it.each(['failed', 'cancelled', 'timeout', 'deleted'])(
+      'throws an APICallError when the prediction is %s',
+      async status => {
+        const { model } = createModel([
+          () => submitted(),
+          () => result(status, { error: 'Prediction did not complete' }),
+        ]);
 
-      await expect(model.doGenerate({ ...baseOptions })).rejects.toThrowError(
-        /failed.*NSFW content detected/,
-      );
-    });
+        await expect(model.doGenerate({ ...baseOptions })).rejects.toThrowError(
+          new RegExp(`${status}.*Prediction did not complete`),
+        );
+      },
+    );
 
     it('surfaces the WaveSpeed error envelope on submit errors', async () => {
       const { model } = createModel([
