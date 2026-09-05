@@ -18,7 +18,7 @@ describe('createWaveSpeed', () => {
   });
 
   it('creates video models with the wavespeed.video provider name', () => {
-    const model = provider.video('bytedance/seedance-2.5/text-to-video');
+    const model = provider.video('wavespeed-ai/minimax-h3/text-to-video');
     expect(model.provider).toBe('wavespeed.video');
     expect(model.specificationVersion).toBe('v4');
   });

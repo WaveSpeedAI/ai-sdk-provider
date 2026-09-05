@@ -58,7 +58,7 @@ import { wavespeed } from '@wavespeed/ai-sdk-provider';
 import { experimental_generateVideo as generateVideo } from 'ai';
 
 const { video } = await generateVideo({
-  model: wavespeed.video('bytedance/seedance-2.5/text-to-video'),
+  model: wavespeed.video('wavespeed-ai/minimax-h3/text-to-video'),
   prompt: 'A drone shot flying over a rugged coastline at golden hour',
   aspectRatio: '16:9',
   duration: 5,
@@ -66,6 +66,9 @@ const { video } = await generateVideo({
 
 console.log(video.url);
 ```
+
+MiniMax H3 is the cheap open-weights starting point; use
+`wavespeed.video('bytedance/seedance-2.5/text-to-video')` for the highest quality.
 
 Video models implement the AI SDK's asynchronous start/status flow, so the
 AI SDK core orchestrates polling for you.

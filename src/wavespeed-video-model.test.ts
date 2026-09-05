@@ -18,7 +18,7 @@ function createModel(responses: Array<() => Response>) {
   const { fetch, requests } = createMockFetch(responses);
   const provider = createWaveSpeed({ apiKey: 'test-key', fetch });
   return {
-    model: provider.video('bytedance/seedance-2.5/text-to-video'),
+    model: provider.video('wavespeed-ai/minimax-h3/text-to-video'),
     requests,
   };
 }
@@ -52,7 +52,7 @@ describe('WaveSpeedVideoModel', () => {
       });
 
       expect(requests[0]!.url).toBe(
-        'https://api.wavespeed.ai/api/v3/bytedance/seedance-2.5/text-to-video',
+        'https://api.wavespeed.ai/api/v3/wavespeed-ai/minimax-h3/text-to-video',
       );
       expect(requests[0]!.body).toStrictEqual({
         prompt: 'A drone shot over a coastline',
