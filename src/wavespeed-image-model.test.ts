@@ -289,5 +289,22 @@ describe('WaveSpeedImageModel', () => {
       expect(APICallError.isInstance(error)).toBe(true);
       expect(error.isRetryable).toBe(false);
     });
+
+    it.each([500, 502, 503])(
+      'output download %s is non-retryable so the AI SDK cannot re-submit',
+      async status => {
+        const { model, requests } = createFastBackoffModel([
+          submitted,
+          () => result('completed', { outputs: ['https://static.wavespeed.ai/o.png'] }),
+          errorResponse(status),
+        ]);
+
+        const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+
+        expect(APICallError.isInstance(error)).toBe(true);
+        expect(error.isRetryable).toBe(false);
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+      },
+    );
   });
 });

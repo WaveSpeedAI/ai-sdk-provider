@@ -279,6 +279,10 @@ export class WaveSpeedImageModel implements ImageModelV4 {
       failedResponseHandler: createStatusCodeErrorResponseHandler(),
       successfulResponseHandler: createBinaryResponseHandler(),
       fetch: this.config.fetch,
+    }).catch(error => {
+      // The prediction already exists (and is charged): a retryable error here
+      // would make the AI SDK re-run doGenerate and submit a second task.
+      throw asNonRetryable(error);
     });
     return response;
   }
