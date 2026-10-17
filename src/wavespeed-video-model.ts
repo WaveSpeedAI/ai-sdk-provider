@@ -20,6 +20,7 @@ import type { WaveSpeedConfig } from './wavespeed-config';
 import {
   asNonRetryable,
   getWithPollRetry,
+  withRequestTimeout,
   waveSpeedFailedResponseHandler,
 } from './wavespeed-error';
 import {
@@ -143,20 +144,30 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
     const currentDate = this.config._internal?.currentDate?.() ?? new Date();
     const { body, warnings } = this.buildRequestBody(options);
 
-    const { value: submitResponse, responseHeaders } = await postJsonToApi({
-      url: `${this.config.baseURL}/api/v3/${this.modelId}`,
-      headers: combineHeaders(
-        this.config.headers ? await resolve(this.config.headers) : undefined,
-        options.headers,
-      ),
-      body,
-      failedResponseHandler: waveSpeedFailedResponseHandler,
-      successfulResponseHandler: createJsonResponseHandler(
-        waveSpeedSubmitResponseSchema,
-      ),
-      abortSignal: options.abortSignal,
-      fetch: this.config.fetch,
-    }).catch(error => {
+    const submitUrl = `${this.config.baseURL}/api/v3/${this.modelId}`;
+    const submitHeaders = combineHeaders(
+      this.config.headers ? await resolve(this.config.headers) : undefined,
+      options.headers,
+    );
+    const { value: submitResponse, responseHeaders } = await withRequestTimeout(
+      signal =>
+        postJsonToApi({
+          url: submitUrl,
+          headers: submitHeaders,
+          body,
+          failedResponseHandler: waveSpeedFailedResponseHandler,
+          successfulResponseHandler: createJsonResponseHandler(
+            waveSpeedSubmitResponseSchema,
+          ),
+          abortSignal: signal,
+          fetch: this.config.fetch,
+        }),
+      {
+        abortSignal: options.abortSignal,
+        timeoutMillis: this.config._internal?.requestTimeoutMillis,
+        url: submitUrl,
+      },
+    ).catch(error => {
       // Single-shot submit: never let the AI SDK re-POST a paid task.
       throw asNonRetryable(error);
     });
@@ -186,16 +197,24 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
       );
       const { value: result, responseHeaders } = await getWithPollRetry(
         () =>
-          getFromApi({
-            url,
-            headers: pollHeaders,
-            failedResponseHandler: waveSpeedFailedResponseHandler,
-            successfulResponseHandler: createJsonResponseHandler(
-              waveSpeedResultResponseSchema,
-            ),
-            abortSignal: options.abortSignal,
-            fetch: this.config.fetch,
-          }),
+          withRequestTimeout(
+            signal =>
+              getFromApi({
+                url,
+                headers: pollHeaders,
+                failedResponseHandler: waveSpeedFailedResponseHandler,
+                successfulResponseHandler: createJsonResponseHandler(
+                  waveSpeedResultResponseSchema,
+                ),
+                abortSignal: signal,
+                fetch: this.config.fetch,
+              }),
+            {
+              abortSignal: options.abortSignal,
+              timeoutMillis: this.config._internal?.requestTimeoutMillis,
+              url,
+            },
+          ),
         {
           predictionId,
           backoffMillis: this.config._internal?.pollErrorBackoffMillis,

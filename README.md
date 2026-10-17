@@ -47,8 +47,10 @@ writeFileSync('output.png', image.uint8Array);
 ```
 
 The provider submits the prediction, polls WaveSpeed until it completes
-(1s interval, 10 minute timeout by default — configurable via
-`pollIntervalMillis` / `pollTimeoutMillis` in `createWaveSpeed`), and returns
+(1s interval by default, no overall time limit — long-running tasks keep
+polling until they finish; set `pollIntervalMillis` / `pollTimeoutMillis` in
+`createWaveSpeed` to change the interval or to opt in to a cap. Each individual
+HTTP request times out after 120s; abort with `abortSignal`), and returns
 the downloaded image bytes.
 
 ## Video generation

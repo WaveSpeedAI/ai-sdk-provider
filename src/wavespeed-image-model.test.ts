@@ -1,5 +1,5 @@
 import { APICallError } from '@ai-sdk/provider';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createWaveSpeed } from './wavespeed-provider';
 import { WaveSpeedImageModel } from './wavespeed-image-model';
 import {
@@ -207,6 +207,123 @@ describe('WaveSpeedImageModel', () => {
       await expect(model.doGenerate({ ...baseOptions })).rejects.toThrowError(
         /still 'processing'/,
       );
+    });
+  });
+
+  describe('overall poll timeout', () => {
+    it('has no default cap: keeps polling well past the old 10 minute budget', async () => {
+      // 700 polls at 1s interval = ~11.7 minutes of simulated time (> 10 min).
+      vi.useFakeTimers();
+      try {
+        let polls = 0;
+        const { fetch } = createMockFetch([
+          () => submitted(),
+          ...Array.from({ length: 700 }, () => () => {
+            polls++;
+            return result('processing');
+          }),
+          () =>
+            result('completed', {
+              outputs: ['https://cdn.wavespeed.ai/out/1.png'],
+            }),
+          () => binaryResponse(IMAGE_BYTES),
+        ]);
+        const model = createWaveSpeed({ apiKey: 'test-key', fetch }).image(
+          'bytedance/seedream-v5.0-pro',
+        );
+
+        const promise = model.doGenerate({ ...baseOptions });
+        await vi.advanceTimersByTimeAsync(720_000);
+        const res = await promise;
+
+        expect(polls).toBe(700);
+        expect(res.images).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('honors an explicit pollTimeoutMillis with the same error', async () => {
+      const { fetch } = createMockFetch([
+        () => submitted('pred-to'),
+        () => result('processing'),
+      ]);
+      const model = createWaveSpeed({
+        apiKey: 'test-key',
+        fetch,
+        pollIntervalMillis: 0,
+        pollTimeoutMillis: 0,
+      }).image('bytedance/seedream-v5.0-pro');
+
+      const error = await Promise.resolve(
+        model.doGenerate({ ...baseOptions }),
+      ).catch((e: any) => e);
+
+      expect(error.message).toMatch(
+        /still 'processing' after 0ms \(prediction id: pred-to\)/,
+      );
+      expect(error.isRetryable).toBe(false);
+    });
+  });
+
+  describe('per-request timeout', () => {
+    const hang: (signal?: AbortSignal | null) => Promise<Response> = signal =>
+      new Promise((_, reject) => {
+        if (signal?.aborted) return reject(signal.reason);
+        signal?.addEventListener('abort', () => reject(signal.reason));
+      });
+
+    function hangingModel(hangOn: 'submit' | 'poll') {
+      let n = 0;
+      const requests: string[] = [];
+      const fetch = async (input: unknown, init?: RequestInit) => {
+        n++;
+        requests.push(init?.method ?? 'GET');
+        if (hangOn === 'submit') return hang(init?.signal);
+        if (n === 1) return submitted();
+        if (n === 2) return hang(init?.signal);
+        if (n === 3)
+          return result('completed', {
+            outputs: ['https://cdn.wavespeed.ai/out/1.png'],
+          });
+        return binaryResponse(IMAGE_BYTES);
+      };
+      const model = new WaveSpeedImageModel('bytedance/seedream-v5.0-pro', {
+        provider: 'wavespeed.image',
+        baseURL: 'https://api.wavespeed.ai',
+        headers: { Authorization: 'Bearer test-key' },
+        fetch: fetch as never,
+        pollIntervalMillis: 0,
+        _internal: { pollErrorBackoffMillis: 0, requestTimeoutMillis: 20 },
+      });
+      return { model, requests };
+    }
+
+    it('a hung poll request is a transient error and is retried', async () => {
+      const { model, requests } = hangingModel('poll');
+      const res = await model.doGenerate({ ...baseOptions });
+      expect(res.images).toHaveLength(1);
+      expect(requests.filter(m => m === 'POST')).toHaveLength(1);
+    });
+
+    it('a hung submit is a non-retryable error and is not re-sent', async () => {
+      const { model, requests } = hangingModel('submit');
+      const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+      expect(APICallError.isInstance(error)).toBe(true);
+      expect(error.isRetryable).toBe(false);
+      expect(error.message).toMatch(/timed out/);
+      expect(requests).toEqual(['POST']);
+    });
+
+    it('a caller abort is not rewritten as a timeout', async () => {
+      const { model } = hangingModel('submit');
+      const controller = new AbortController();
+      const p = Promise.resolve(
+        model.doGenerate({ ...baseOptions, abortSignal: controller.signal }),
+      ).catch((e: unknown) => e);
+      controller.abort();
+      const error = await p;
+      expect(APICallError.isInstance(error)).toBe(false);
     });
   });
 

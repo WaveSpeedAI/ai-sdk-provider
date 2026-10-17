@@ -1,6 +1,7 @@
 import { APICallError } from '@ai-sdk/provider';
 import { createJsonErrorResponseHandler, delay } from '@ai-sdk/provider-utils';
 import { z } from 'zod/v4';
+import { DEFAULT_REQUEST_TIMEOUT_MILLIS } from './wavespeed-config';
 
 /**
  * WaveSpeed error envelope. Non-2xx responses carry
@@ -46,6 +47,40 @@ export function asNonRetryable(error: unknown, suffix = ''): unknown {
     data: error.data,
     isRetryable: false,
   });
+}
+
+/**
+ * Runs one HTTP request with a bounded per-request timeout combined with the
+ * caller's abortSignal. A caller abort is re-thrown untouched; a timeout
+ * becomes a retryable APICallError (no status code), which polling treats as
+ * transient and submit converts to a non-retryable (ambiguous) error.
+ */
+export async function withRequestTimeout<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  {
+    abortSignal,
+    timeoutMillis = DEFAULT_REQUEST_TIMEOUT_MILLIS,
+    url,
+  }: { abortSignal?: AbortSignal; timeoutMillis?: number; url: string },
+): Promise<T> {
+  const timeoutSignal = AbortSignal.timeout(timeoutMillis);
+  const signal = abortSignal
+    ? AbortSignal.any([abortSignal, timeoutSignal])
+    : timeoutSignal;
+  try {
+    return await fn(signal);
+  } catch (error) {
+    if (timeoutSignal.aborted && !abortSignal?.aborted) {
+      throw new APICallError({
+        message: `WaveSpeed request timed out after ${timeoutMillis}ms`,
+        url,
+        requestBodyValues: {},
+        cause: error,
+        isRetryable: true,
+      });
+    }
+    throw error;
+  }
 }
 
 const POLL_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);

@@ -16,12 +16,12 @@ import {
 } from '@ai-sdk/provider-utils';
 import {
   DEFAULT_POLL_INTERVAL_MILLIS,
-  DEFAULT_POLL_TIMEOUT_MILLIS,
   type WaveSpeedConfig,
 } from './wavespeed-config';
 import {
   asNonRetryable,
   getWithPollRetry,
+  withRequestTimeout,
   waveSpeedFailedResponseHandler,
 } from './wavespeed-error';
 import {
@@ -142,17 +142,26 @@ export class WaveSpeedImageModel implements ImageModelV4 {
 
     // Submit the prediction. Single-shot: a failed submit may still have
     // created a paid task, so it must never be retried by the AI SDK.
-    const { value: submitResponse } = await postJsonToApi({
-      url: `${this.config.baseURL}/api/v3/${this.modelId}`,
-      headers,
-      body,
-      failedResponseHandler: waveSpeedFailedResponseHandler,
-      successfulResponseHandler: createJsonResponseHandler(
-        waveSpeedSubmitResponseSchema,
-      ),
-      abortSignal: options.abortSignal,
-      fetch: this.config.fetch,
-    }).catch(error => {
+    const submitUrl = `${this.config.baseURL}/api/v3/${this.modelId}`;
+    const { value: submitResponse } = await withRequestTimeout(
+      signal =>
+        postJsonToApi({
+          url: submitUrl,
+          headers,
+          body,
+          failedResponseHandler: waveSpeedFailedResponseHandler,
+          successfulResponseHandler: createJsonResponseHandler(
+            waveSpeedSubmitResponseSchema,
+          ),
+          abortSignal: signal,
+          fetch: this.config.fetch,
+        }),
+      {
+        abortSignal: options.abortSignal,
+        timeoutMillis: this.config._internal?.requestTimeoutMillis,
+        url: submitUrl,
+      },
+    ).catch(error => {
       throw asNonRetryable(error);
     });
 
@@ -205,24 +214,33 @@ export class WaveSpeedImageModel implements ImageModelV4 {
   }> {
     const pollIntervalMillis =
       this.config.pollIntervalMillis ?? DEFAULT_POLL_INTERVAL_MILLIS;
-    const pollTimeoutMillis =
-      this.config.pollTimeoutMillis ?? DEFAULT_POLL_TIMEOUT_MILLIS;
-    const deadline = Date.now() + pollTimeoutMillis;
+    // No overall cap unless the caller opts in with pollTimeoutMillis.
+    const pollTimeoutMillis = this.config.pollTimeoutMillis;
+    const deadline =
+      pollTimeoutMillis != null ? Date.now() + pollTimeoutMillis : undefined;
     const url = `${this.config.baseURL}/api/v3/predictions/${predictionId}/result`;
 
     for (;;) {
       const { value: result, responseHeaders } = await getWithPollRetry(
         () =>
-          getFromApi({
-            url,
-            headers,
-            failedResponseHandler: waveSpeedFailedResponseHandler,
-            successfulResponseHandler: createJsonResponseHandler(
-              waveSpeedResultResponseSchema,
-            ),
-            abortSignal,
-            fetch: this.config.fetch,
-          }),
+          withRequestTimeout(
+            signal =>
+              getFromApi({
+                url,
+                headers,
+                failedResponseHandler: waveSpeedFailedResponseHandler,
+                successfulResponseHandler: createJsonResponseHandler(
+                  waveSpeedResultResponseSchema,
+                ),
+                abortSignal: signal,
+                fetch: this.config.fetch,
+              }),
+            {
+              abortSignal,
+              timeoutMillis: this.config._internal?.requestTimeoutMillis,
+              url,
+            },
+          ),
         {
           predictionId,
           backoffMillis: this.config._internal?.pollErrorBackoffMillis,
@@ -249,7 +267,7 @@ export class WaveSpeedImageModel implements ImageModelV4 {
         });
       }
 
-      if (Date.now() >= deadline) {
+      if (deadline != null && Date.now() >= deadline) {
         throw new APICallError({
           message:
             `WaveSpeed prediction still '${status}' after ${pollTimeoutMillis}ms ` +
@@ -262,7 +280,7 @@ export class WaveSpeedImageModel implements ImageModelV4 {
         });
       }
 
-      await delay(pollIntervalMillis);
+      await delay(pollIntervalMillis, { abortSignal });
     }
   }
 

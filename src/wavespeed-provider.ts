@@ -45,8 +45,9 @@ export interface WaveSpeedProviderSettings {
   pollIntervalMillis?: number;
 
   /**
-   * Maximum total time to wait for a prediction in milliseconds.
-   * Defaults to 600000 (10 minutes).
+   * Optional maximum total time to wait for a prediction in milliseconds.
+   * No default: polling continues until the task reaches a terminal status
+   * (or the caller aborts).
    */
   pollTimeoutMillis?: number;
 }
