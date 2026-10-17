@@ -20,8 +20,8 @@ export type WaveSpeedConfig = {
     /** Backoff unit for transient poll failures. Defaults to 1000. */
     pollErrorBackoffMillis?: number;
     /**
-     * Single override for every per-HTTP-request timeout (submit and poll).
-     * Defaults: submit 60000, poll 30000.
+     * Single override for every per-HTTP-request timeout (submit, poll, output download).
+     * Defaults: submit 60000, poll 30000, download 120000.
      */
     requestTimeoutMillis?: number;
   };
@@ -29,4 +29,5 @@ export type WaveSpeedConfig = {
 
 export const DEFAULT_POLL_INTERVAL_MILLIS = 1000;
 export const DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS = 30000;
+export const DEFAULT_DOWNLOAD_REQUEST_TIMEOUT_MILLIS = 120000;
 export const DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS = 60000;

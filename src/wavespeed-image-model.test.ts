@@ -299,7 +299,7 @@ describe('WaveSpeedImageModel', () => {
       return { model, requests };
     }
 
-    it('uses 60s for submit and 30s for polls by default; the override applies to both', async () => {
+    it('uses 60s submit, 30s poll, 120s download by default; the override applies to both', async () => {
       const run = async (override?: number) => {
         const spy = vi.spyOn(AbortSignal, 'timeout');
         try {
@@ -326,8 +326,8 @@ describe('WaveSpeedImageModel', () => {
           spy.mockRestore();
         }
       };
-      expect(await run()).toEqual([60000, 30000]);
-      expect(await run(1234)).toEqual([1234, 1234]);
+      expect(await run()).toEqual([60000, 30000, 120000]);
+      expect(await run(1234)).toEqual([1234, 1234, 1234]);
     });
 
     it('a hung poll request is a transient error and is retried', async () => {
@@ -344,6 +344,36 @@ describe('WaveSpeedImageModel', () => {
       expect(error.isRetryable).toBe(false);
       expect(error.message).toMatch(/timed out/);
       expect(requests).toEqual(['POST']);
+    });
+
+    it('a hung output download fails non-retryably without re-submitting', async () => {
+      let n = 0;
+      const requests: string[] = [];
+      const fetch = async (_input: unknown, init?: RequestInit) => {
+        n++;
+        requests.push(init?.method ?? 'GET');
+        if (n === 1) return submitted('pred-dl');
+        if (n === 2)
+          return result('completed', {
+            outputs: ['https://cdn.wavespeed.ai/out/1.png'],
+          });
+        return hang(init?.signal);
+      };
+      const model = new WaveSpeedImageModel('bytedance/seedream-v5.0-pro', {
+        provider: 'wavespeed.image',
+        baseURL: 'https://api.wavespeed.ai',
+        headers: { Authorization: 'Bearer test-key' },
+        fetch: fetch as never,
+        pollIntervalMillis: 0,
+        _internal: { requestTimeoutMillis: 20 },
+      });
+      const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+      expect(APICallError.isInstance(error)).toBe(true);
+      expect(error.isRetryable).toBe(false);
+      expect(error.message).toContain('pred-dl');
+      expect(error.message).toContain('could not be downloaded');
+      expect(error.message).not.toContain('cdn.wavespeed.ai');
+      expect(requests).toEqual(['POST', 'GET', 'GET']);
     });
 
     it('a caller abort is not rewritten as a timeout', async () => {

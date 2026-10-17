@@ -15,6 +15,7 @@ import {
   WORKFLOW_DESERIALIZE,
 } from '@ai-sdk/provider-utils';
 import {
+  DEFAULT_DOWNLOAD_REQUEST_TIMEOUT_MILLIS,
   DEFAULT_POLL_INTERVAL_MILLIS,
   DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS,
   DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS,
@@ -182,7 +183,9 @@ export class WaveSpeedImageModel implements ImageModelV4 {
 
     // Download the generated images.
     const images = await Promise.all(
-      outputs.map(url => this.downloadImage(url, options.abortSignal)),
+      outputs.map(url =>
+        this.downloadImage(url, options.abortSignal, predictionId),
+      ),
     );
 
     const { outputs: _outputs, ...resultMetadata } = result.data;
@@ -293,20 +296,34 @@ export class WaveSpeedImageModel implements ImageModelV4 {
   private async downloadImage(
     url: string,
     abortSignal: AbortSignal | undefined,
+    predictionId: string,
   ): Promise<Uint8Array> {
-    const { value: response } = await getFromApi({
-      url,
-      // url is a generated-image URL from the prediction result; validate it.
-      validateUrl: true,
-      trustedOrigin: this.config.baseURL,
-      abortSignal,
-      failedResponseHandler: createStatusCodeErrorResponseHandler(),
-      successfulResponseHandler: createBinaryResponseHandler(),
-      fetch: this.config.fetch,
-    }).catch(error => {
+    const { value: response } = await withRequestTimeout(
+      signal =>
+        getFromApi({
+          url,
+          // url is a generated-image URL from the prediction result; validate it.
+          validateUrl: true,
+          trustedOrigin: this.config.baseURL,
+          abortSignal: signal,
+          failedResponseHandler: createStatusCodeErrorResponseHandler(),
+          successfulResponseHandler: createBinaryResponseHandler(),
+          fetch: this.config.fetch,
+        }),
+      {
+        abortSignal,
+        timeoutMillis:
+          this.config._internal?.requestTimeoutMillis ??
+          DEFAULT_DOWNLOAD_REQUEST_TIMEOUT_MILLIS,
+        url,
+      },
+    ).catch(error => {
       // The prediction already exists (and is charged): a retryable error here
       // would make the AI SDK re-run doGenerate and submit a second task.
-      throw asNonRetryable(error);
+      throw asNonRetryable(
+        error,
+        ` (prediction id: ${predictionId}; the task completed but its output could not be downloaded)`,
+      );
     });
     return response;
   }
