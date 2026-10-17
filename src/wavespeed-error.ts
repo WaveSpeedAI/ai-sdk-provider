@@ -1,7 +1,6 @@
 import { APICallError } from '@ai-sdk/provider';
 import { createJsonErrorResponseHandler, delay } from '@ai-sdk/provider-utils';
 import { z } from 'zod/v4';
-import { DEFAULT_REQUEST_TIMEOUT_MILLIS } from './wavespeed-config';
 
 /**
  * WaveSpeed error envelope. Non-2xx responses carry
@@ -59,9 +58,9 @@ export async function withRequestTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   {
     abortSignal,
-    timeoutMillis = DEFAULT_REQUEST_TIMEOUT_MILLIS,
+    timeoutMillis,
     url,
-  }: { abortSignal?: AbortSignal; timeoutMillis?: number; url: string },
+  }: { abortSignal?: AbortSignal; timeoutMillis: number; url: string },
 ): Promise<T> {
   const timeoutSignal = AbortSignal.timeout(timeoutMillis);
   const signal = abortSignal

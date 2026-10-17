@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createWaveSpeed } from './wavespeed-provider';
 import { WaveSpeedVideoModel } from './wavespeed-video-model';
 import { createMockFetch, jsonResponse } from './test-utils';
@@ -55,6 +55,40 @@ const baseOptions = {
 } as const;
 
 describe('WaveSpeedVideoModel', () => {
+  describe('per-request timeout', () => {
+    it('uses 60s for submit and 30s for polls by default; the override applies to both', async () => {
+      const run = async (override?: number) => {
+        const spy = vi.spyOn(AbortSignal, 'timeout');
+        try {
+          const { fetch } = createMockFetch([
+            () => submitted(),
+            () => result('processing'),
+          ]);
+          const model = new WaveSpeedVideoModel(
+            'wavespeed-ai/minimax-h3/text-to-video',
+            {
+              provider: 'wavespeed.video',
+              baseURL: 'https://api.wavespeed.ai',
+              headers: { Authorization: 'Bearer test-key' },
+              fetch,
+              _internal:
+                override == null
+                  ? undefined
+                  : { requestTimeoutMillis: override },
+            },
+          );
+          const { operation } = await model.doStart({ ...baseOptions });
+          await model.doStatus({ operation } as never);
+          return spy.mock.calls.map(c => c[0]);
+        } finally {
+          spy.mockRestore();
+        }
+      };
+      expect(await run()).toEqual([60000, 30000]);
+      expect(await run(1234)).toEqual([1234, 1234]);
+    });
+  });
+
   describe('doStart', () => {
     it('maps args to the WaveSpeed request body and returns the operation', async () => {
       const { model, requests } = createModel([() => submitted()]);

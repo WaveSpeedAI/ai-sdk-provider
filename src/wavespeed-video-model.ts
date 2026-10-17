@@ -16,7 +16,11 @@ import {
   WORKFLOW_SERIALIZE,
   WORKFLOW_DESERIALIZE,
 } from '@ai-sdk/provider-utils';
-import type { WaveSpeedConfig } from './wavespeed-config';
+import {
+  DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS,
+  DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS,
+  type WaveSpeedConfig,
+} from './wavespeed-config';
 import {
   asNonRetryable,
   getWithPollRetry,
@@ -164,7 +168,9 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
         }),
       {
         abortSignal: options.abortSignal,
-        timeoutMillis: this.config._internal?.requestTimeoutMillis,
+        timeoutMillis:
+          this.config._internal?.requestTimeoutMillis ??
+          DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS,
         url: submitUrl,
       },
     ).catch(error => {
@@ -211,7 +217,9 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
               }),
             {
               abortSignal: options.abortSignal,
-              timeoutMillis: this.config._internal?.requestTimeoutMillis,
+              timeoutMillis:
+                this.config._internal?.requestTimeoutMillis ??
+                DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS,
               url,
             },
           ),

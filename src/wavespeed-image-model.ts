@@ -16,6 +16,8 @@ import {
 } from '@ai-sdk/provider-utils';
 import {
   DEFAULT_POLL_INTERVAL_MILLIS,
+  DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS,
+  DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS,
   type WaveSpeedConfig,
 } from './wavespeed-config';
 import {
@@ -158,7 +160,9 @@ export class WaveSpeedImageModel implements ImageModelV4 {
         }),
       {
         abortSignal: options.abortSignal,
-        timeoutMillis: this.config._internal?.requestTimeoutMillis,
+        timeoutMillis:
+          this.config._internal?.requestTimeoutMillis ??
+          DEFAULT_SUBMIT_REQUEST_TIMEOUT_MILLIS,
         url: submitUrl,
       },
     ).catch(error => {
@@ -237,7 +241,9 @@ export class WaveSpeedImageModel implements ImageModelV4 {
               }),
             {
               abortSignal,
-              timeoutMillis: this.config._internal?.requestTimeoutMillis,
+              timeoutMillis:
+                this.config._internal?.requestTimeoutMillis ??
+                DEFAULT_POLL_REQUEST_TIMEOUT_MILLIS,
               url,
             },
           ),
