@@ -17,7 +17,11 @@ import {
   WORKFLOW_DESERIALIZE,
 } from '@ai-sdk/provider-utils';
 import type { WaveSpeedConfig } from './wavespeed-config';
-import { waveSpeedFailedResponseHandler } from './wavespeed-error';
+import {
+  asNonRetryable,
+  getWithPollRetry,
+  waveSpeedFailedResponseHandler,
+} from './wavespeed-error';
 import {
   isTerminalFailure,
   waveSpeedResultResponseSchema,
@@ -152,6 +156,9 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
       ),
       abortSignal: options.abortSignal,
       fetch: this.config.fetch,
+    }).catch(error => {
+      // Single-shot submit: never let the AI SDK re-POST a paid task.
+      throw asNonRetryable(error);
     });
 
     return {
@@ -173,19 +180,28 @@ export class WaveSpeedVideoModel implements VideoModelV4 {
     const url = `${this.config.baseURL}/api/v3/predictions/${predictionId}/result`;
 
     try {
-      const { value: result, responseHeaders } = await getFromApi({
-        url,
-        headers: combineHeaders(
-          this.config.headers ? await resolve(this.config.headers) : undefined,
-          options.headers,
-        ),
-        failedResponseHandler: waveSpeedFailedResponseHandler,
-        successfulResponseHandler: createJsonResponseHandler(
-          waveSpeedResultResponseSchema,
-        ),
-        abortSignal: options.abortSignal,
-        fetch: this.config.fetch,
-      });
+      const pollHeaders = combineHeaders(
+        this.config.headers ? await resolve(this.config.headers) : undefined,
+        options.headers,
+      );
+      const { value: result, responseHeaders } = await getWithPollRetry(
+        () =>
+          getFromApi({
+            url,
+            headers: pollHeaders,
+            failedResponseHandler: waveSpeedFailedResponseHandler,
+            successfulResponseHandler: createJsonResponseHandler(
+              waveSpeedResultResponseSchema,
+            ),
+            abortSignal: options.abortSignal,
+            fetch: this.config.fetch,
+          }),
+        {
+          predictionId,
+          backoffMillis: this.config._internal?.pollErrorBackoffMillis,
+          abortSignal: options.abortSignal,
+        },
+      );
 
       const { status, error, outputs } = result.data;
 

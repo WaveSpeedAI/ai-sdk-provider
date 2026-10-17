@@ -16,6 +16,8 @@ export type WaveSpeedConfig = {
   pollTimeoutMillis?: number;
   _internal?: {
     currentDate?: () => Date;
+    /** Backoff unit for transient poll failures. Defaults to 1000. */
+    pollErrorBackoffMillis?: number;
   };
 };
 

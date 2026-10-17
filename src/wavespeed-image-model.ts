@@ -19,7 +19,11 @@ import {
   DEFAULT_POLL_TIMEOUT_MILLIS,
   type WaveSpeedConfig,
 } from './wavespeed-config';
-import { waveSpeedFailedResponseHandler } from './wavespeed-error';
+import {
+  asNonRetryable,
+  getWithPollRetry,
+  waveSpeedFailedResponseHandler,
+} from './wavespeed-error';
 import {
   isTerminalFailure,
   waveSpeedResultResponseSchema,
@@ -136,7 +140,8 @@ export class WaveSpeedImageModel implements ImageModelV4 {
       options.headers,
     );
 
-    // Submit the prediction.
+    // Submit the prediction. Single-shot: a failed submit may still have
+    // created a paid task, so it must never be retried by the AI SDK.
     const { value: submitResponse } = await postJsonToApi({
       url: `${this.config.baseURL}/api/v3/${this.modelId}`,
       headers,
@@ -147,6 +152,8 @@ export class WaveSpeedImageModel implements ImageModelV4 {
       ),
       abortSignal: options.abortSignal,
       fetch: this.config.fetch,
+    }).catch(error => {
+      throw asNonRetryable(error);
     });
 
     const predictionId = submitResponse.data.id;
@@ -204,16 +211,24 @@ export class WaveSpeedImageModel implements ImageModelV4 {
     const url = `${this.config.baseURL}/api/v3/predictions/${predictionId}/result`;
 
     for (;;) {
-      const { value: result, responseHeaders } = await getFromApi({
-        url,
-        headers,
-        failedResponseHandler: waveSpeedFailedResponseHandler,
-        successfulResponseHandler: createJsonResponseHandler(
-          waveSpeedResultResponseSchema,
-        ),
-        abortSignal,
-        fetch: this.config.fetch,
-      });
+      const { value: result, responseHeaders } = await getWithPollRetry(
+        () =>
+          getFromApi({
+            url,
+            headers,
+            failedResponseHandler: waveSpeedFailedResponseHandler,
+            successfulResponseHandler: createJsonResponseHandler(
+              waveSpeedResultResponseSchema,
+            ),
+            abortSignal,
+            fetch: this.config.fetch,
+          }),
+        {
+          predictionId,
+          backoffMillis: this.config._internal?.pollErrorBackoffMillis,
+          abortSignal,
+        },
+      );
 
       const { status, error } = result.data;
 

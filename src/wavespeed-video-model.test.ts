@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWaveSpeed } from './wavespeed-provider';
+import { WaveSpeedVideoModel } from './wavespeed-video-model';
 import { createMockFetch, jsonResponse } from './test-utils';
 
 function submitted(id = 'vid-456') {
@@ -22,6 +23,21 @@ function createModel(responses: Array<() => Response>) {
     requests,
   };
 }
+
+function createFastBackoffModel(responses: Array<() => Response>) {
+  const { fetch, requests } = createMockFetch(responses);
+  const model = new WaveSpeedVideoModel('wavespeed-ai/minimax-h3/text-to-video', {
+    provider: 'wavespeed.video',
+    baseURL: 'https://api.wavespeed.ai',
+    headers: { Authorization: 'Bearer test-key' },
+    fetch,
+    _internal: { pollErrorBackoffMillis: 0 },
+  });
+  return { model, requests };
+}
+
+const errorResponse = (status: number) => () =>
+  jsonResponse({ code: status, message: `upstream ${status}`, data: null }, status);
 
 const baseOptions = {
   prompt: 'A drone shot over a coastline',
@@ -132,17 +148,50 @@ describe('WaveSpeedVideoModel', () => {
       });
     });
 
-    it('converts API errors into an error status', async () => {
-      const { model } = createModel([
-        () =>
-          jsonResponse({ code: 500, message: 'internal error', data: null }, 500),
+    it('retries transient poll failures, then succeeds', async () => {
+      const { model, requests } = createFastBackoffModel([
+        errorResponse(502),
+        () => result('processing'),
       ]);
 
       const status = await model.doStatus!({
         operation: { predictionId: 'vid-456' },
       });
 
-      expect(status.status).toBe('error');
+      expect(status.status).toBe('pending');
+      expect(requests).toHaveLength(2);
     });
+
+    it('converts persistent API errors into an error status naming the task id', async () => {
+      const { model } = createFastBackoffModel(
+        Array.from({ length: 6 }, () => errorResponse(500)),
+      );
+
+      const status = await model.doStatus!({
+        operation: { predictionId: 'vid-456' },
+      });
+
+      expect(status.status).toBe('error');
+      expect(status).toMatchObject({
+        error: expect.stringContaining('vid-456'),
+      });
+    });
+  });
+
+  describe('doStart retry safety', () => {
+    it.each([504, 500, 429])(
+      'submit %s is non-retryable and not retried internally',
+      async status => {
+        const { model, requests } = createFastBackoffModel([
+          errorResponse(status),
+        ]);
+
+        const error = await model.doStart!({ ...baseOptions }).catch(e => e);
+
+        expect(error.statusCode).toBe(status);
+        expect(error.isRetryable).toBe(false);
+        expect(requests).toHaveLength(1);
+      },
+    );
   });
 });

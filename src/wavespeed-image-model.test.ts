@@ -1,6 +1,7 @@
 import { APICallError } from '@ai-sdk/provider';
 import { describe, expect, it } from 'vitest';
 import { createWaveSpeed } from './wavespeed-provider';
+import { WaveSpeedImageModel } from './wavespeed-image-model';
 import {
   binaryResponse,
   createMockFetch,
@@ -41,6 +42,22 @@ const baseOptions = {
   mask: undefined,
   providerOptions: {},
 } as const;
+
+function createFastBackoffModel(responses: Array<() => Response>) {
+  const { fetch, requests } = createMockFetch(responses);
+  const model = new WaveSpeedImageModel('bytedance/seedream-v5.0-pro', {
+    provider: 'wavespeed.image',
+    baseURL: 'https://api.wavespeed.ai',
+    headers: { Authorization: 'Bearer test-key' },
+    fetch,
+    pollIntervalMillis: 0,
+    _internal: { pollErrorBackoffMillis: 0 },
+  });
+  return { model, requests };
+}
+
+const errorResponse = (status: number) => () =>
+  jsonResponse({ code: status, message: `upstream ${status}`, data: null }, status);
 
 describe('WaveSpeedImageModel', () => {
   describe('argument mapping', () => {
@@ -190,6 +207,87 @@ describe('WaveSpeedImageModel', () => {
       await expect(model.doGenerate({ ...baseOptions })).rejects.toThrowError(
         /still 'processing'/,
       );
+    });
+  });
+
+  describe('retry safety (no duplicate paid tasks)', () => {
+    it('tolerates a poll 502 without re-submitting', async () => {
+      const { model, requests } = createFastBackoffModel([
+        () => submitted(),
+        errorResponse(502),
+        () =>
+          result('completed', {
+            outputs: ['https://cdn.wavespeed.ai/out/1.png'],
+          }),
+        () => binaryResponse(IMAGE_BYTES),
+      ]);
+
+      const res = await model.doGenerate({ ...baseOptions });
+
+      expect(res.images).toHaveLength(1);
+      expect(requests.filter(r => r.method === 'POST')).toHaveLength(1);
+    });
+
+    it('throws a non-retryable error naming the task id when polling keeps failing', async () => {
+      const { model, requests } = createFastBackoffModel([
+        () => submitted('pred-xyz'),
+        ...Array.from({ length: 6 }, () => errorResponse(503)),
+      ]);
+
+      const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+
+      expect(APICallError.isInstance(error)).toBe(true);
+      expect(error.isRetryable).toBe(false);
+      expect(error.message).toContain('pred-xyz');
+      // 1 submit + initial poll + 5 retries
+      expect(requests).toHaveLength(7);
+    });
+
+    it('does not retry a non-transient poll error (401)', async () => {
+      const { model, requests } = createFastBackoffModel([
+        () => submitted('pred-401'),
+        errorResponse(401),
+      ]);
+
+      const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+
+      expect(error.isRetryable).toBe(false);
+      expect(error.message).toContain('pred-401');
+      expect(requests).toHaveLength(2);
+    });
+
+    it.each([504, 500, 429, 408])(
+      'submit %s is non-retryable and not retried internally',
+      async status => {
+        const { model, requests } = createFastBackoffModel([
+          errorResponse(status),
+        ]);
+
+        const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+
+        expect(APICallError.isInstance(error)).toBe(true);
+        expect(error.statusCode).toBe(status);
+        expect(error.isRetryable).toBe(false);
+        expect(requests).toHaveLength(1);
+      },
+    );
+
+    it('submit network error is non-retryable', async () => {
+      const fetch = async () => {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: new Error('ECONNRESET'),
+        });
+      };
+      const model = new WaveSpeedImageModel('m', {
+        provider: 'wavespeed.image',
+        baseURL: 'https://api.wavespeed.ai',
+        fetch,
+      });
+
+      const error = await model.doGenerate({ ...baseOptions }).catch(e => e);
+
+      expect(APICallError.isInstance(error)).toBe(true);
+      expect(error.isRetryable).toBe(false);
     });
   });
 });
