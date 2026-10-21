@@ -28,8 +28,78 @@ describe('createWaveSpeed', () => {
     expect(provider.videoModel('m').provider).toBe('wavespeed.video');
   });
 
-  it('throws NoSuchModelError for unsupported model types', () => {
-    expect(() => provider.languageModel('m')).toThrowError(NoSuchModelError);
+  it('creates chat language models via call, chat and languageModel', () => {
+    for (const model of [
+      provider('deepseek/deepseek-v4.1-flash-1017'),
+      provider.chat('deepseek/deepseek-v4.1-flash-1017'),
+      provider.languageModel('deepseek/deepseek-v4.1-flash-1017'),
+    ]) {
+      expect(model.provider).toBe('wavespeed.chat');
+      expect(model.modelId).toBe('deepseek/deepseek-v4.1-flash-1017');
+      expect(model.specificationVersion).toBe('v4');
+    }
+  });
+
+  it('sends chat requests to the LLM gateway with bearer auth and attribution headers', async () => {
+    const calls: { url: string; headers: Headers; body: any }[] = [];
+    const p = createWaveSpeed({
+      apiKey: 'test-key',
+      fetch: async (url, init) => {
+        calls.push({
+          url: String(url),
+          headers: new Headers(init?.headers as HeadersInit),
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response(
+          JSON.stringify({
+            id: 'x',
+            created: 1,
+            model: 'm',
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: 'hi' },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+    const result = await p('m').doGenerate({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+    });
+    const call = calls[0]!;
+    expect(call.url).toBe('https://llm.wavespeed.ai/v1/chat/completions');
+    expect(call.headers.get('authorization')).toBe('Bearer test-key');
+    expect(call.headers.get('x-client-name')).toBe(
+      'wavespeed-ai-sdk-provider',
+    );
+    expect(call.body.model).toBe('m');
+    expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
+  });
+
+  it('honours llmBaseURL', async () => {
+    let seen = '';
+    const p = createWaveSpeed({
+      apiKey: 'k',
+      llmBaseURL: 'https://example.test/v1/',
+      fetch: async url => {
+        seen = String(url);
+        return new Response('{}', { status: 500 });
+      },
+    });
+    try {
+      await p('m').doGenerate({
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }],
+      });
+    } catch {}
+    expect(seen).toBe('https://example.test/v1/chat/completions');
+  });
+
+  it('throws NoSuchModelError for embedding models', () => {
     expect(() => provider.embeddingModel('m')).toThrowError(NoSuchModelError);
   });
 

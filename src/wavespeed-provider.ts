@@ -2,6 +2,7 @@ import {
   NoSuchModelError,
   type Experimental_VideoModelV4,
   type ImageModelV4,
+  type LanguageModelV4,
   type ProviderV4,
 } from '@ai-sdk/provider';
 import {
@@ -10,6 +11,7 @@ import {
   withUserAgentSuffix,
   type FetchFunction,
 } from '@ai-sdk/provider-utils';
+import { OpenAICompatibleChatLanguageModel } from '@ai-sdk/openai-compatible';
 import { WaveSpeedImageModel } from './wavespeed-image-model';
 import { WaveSpeedVideoModel } from './wavespeed-video-model';
 import { VERSION } from './version';
@@ -26,6 +28,12 @@ export interface WaveSpeedProviderSettings {
    * The default prefix is `https://api.wavespeed.ai`.
    */
   baseURL?: string;
+
+  /**
+   * Base URL for language model (LLM gateway) calls.
+   * The default prefix is `https://llm.wavespeed.ai/v1`.
+   */
+  llmBaseURL?: string;
 
   /**
    * Custom headers to include in the requests.
@@ -54,6 +62,16 @@ export interface WaveSpeedProviderSettings {
 
 export interface WaveSpeedProvider extends ProviderV4 {
   /**
+   * Creates a language model (chat) from the WaveSpeed LLM gateway.
+   */
+  (modelId: string): LanguageModelV4;
+
+  /**
+   * Creates a language model (chat) from the WaveSpeed LLM gateway.
+   */
+  chat(modelId: string): LanguageModelV4;
+
+  /**
    * Creates a model for image generation.
    */
   image(modelId: string): ImageModelV4;
@@ -80,6 +98,7 @@ export interface WaveSpeedProvider extends ProviderV4 {
 }
 
 const defaultBaseURL = 'https://api.wavespeed.ai';
+const defaultLlmBaseURL = 'https://llm.wavespeed.ai/v1';
 
 /**
  * Lowercase OS name for the X-Client-OS header: darwin / linux / windows
@@ -147,6 +166,9 @@ export function createWaveSpeed(
   const baseURL =
     withoutTrailingSlash(options.baseURL ?? defaultBaseURL) ?? defaultBaseURL;
 
+  const llmBaseURL =
+    withoutTrailingSlash(options.llmBaseURL) ?? defaultLlmBaseURL;
+
   const getHeaders = () =>
     withUserAgentSuffix(
       {
@@ -181,22 +203,32 @@ export function createWaveSpeed(
       pollTimeoutMillis: options.pollTimeoutMillis,
     });
 
+  const createLanguageModel = (modelId: string): LanguageModelV4 =>
+    new OpenAICompatibleChatLanguageModel(modelId, {
+      provider: 'wavespeed.chat',
+      url: ({ path }) => `${llmBaseURL}${path}`,
+      headers: getHeaders,
+      fetch: options.fetch,
+      includeUsage: true,
+    });
+
   const embeddingModel = (modelId: string) => {
     throw new NoSuchModelError({ modelId, modelType: 'embeddingModel' });
   };
 
-  return {
+  const provider = (modelId: string) => createLanguageModel(modelId);
+
+  return Object.assign(provider, {
     specificationVersion: 'v4' as const,
+    chat: createLanguageModel,
     image: createImageModel,
     imageModel: createImageModel,
     video: createVideoModel,
     videoModel: createVideoModel,
-    languageModel: (modelId: string) => {
-      throw new NoSuchModelError({ modelId, modelType: 'languageModel' });
-    },
+    languageModel: createLanguageModel,
     embeddingModel,
     textEmbeddingModel: embeddingModel,
-  };
+  });
 }
 
 /**

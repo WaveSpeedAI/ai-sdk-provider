@@ -1,9 +1,9 @@
 # WaveSpeed provider for the Vercel AI SDK
 
 The **[WaveSpeed](https://wavespeed.ai)** provider for the
-[Vercel AI SDK](https://ai-sdk.dev) gives you access to WaveSpeed's image and
-video generation models through the standard AI SDK interfaces
-(`generateImage` / `generateVideo`).
+[Vercel AI SDK](https://ai-sdk.dev) gives you access to WaveSpeed's LLMs, image
+models and video models through the standard AI SDK interfaces
+(`generateText` / `streamText`, `generateImage`, `generateVideo`).
 
 ## Installation
 
@@ -28,6 +28,29 @@ import { createWaveSpeed } from '@wavespeed/ai-sdk-provider';
 const wavespeed = createWaveSpeed({
   apiKey: 'your-api-key',
 });
+```
+
+## Language models
+
+Chat models are served by the WaveSpeed LLM gateway
+(`https://llm.wavespeed.ai/v1`, override with `llmBaseURL`) and support
+streaming, tool calls and structured output. Browse model IDs in the
+[LLM catalog](https://wavespeed.ai/llm).
+
+```ts
+import { wavespeed } from '@wavespeed/ai-sdk-provider';
+import { generateText, streamText } from 'ai';
+
+const { text } = await generateText({
+  model: wavespeed('deepseek/deepseek-v4.1-flash-1017'),
+  prompt: 'Write a haiku about GPUs.',
+});
+
+const result = streamText({
+  model: wavespeed.chat('deepseek/deepseek-v4.1-flash-1017'),
+  prompt: 'Explain diffusion models in one paragraph.',
+});
+for await (const chunk of result.textStream) process.stdout.write(chunk);
 ```
 
 ## Image generation
